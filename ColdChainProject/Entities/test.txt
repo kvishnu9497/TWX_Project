@@ -1,0 +1,87 @@
+// Check device with serial number retrieved from TFConnect present in ThingWorx
+try {
+	var deviceExistCheck = Things["TF.GSS.Flow.UtilityThing"].CheckDeviceExistsForSerialNumber({
+		serialNumber: serialNumber,
+		modelNumber: modelNumber
+	});
+
+	if (deviceExistCheck.isPresent) {
+		// If thing model of device for the serial number exists in ThingWorx, we will create new entry in TF.GSS.DeviceSerialMapping.DT
+		// and update the deviceId for the thing
+		try {
+			var replaceDeviceId = Things["TF.GSS.Flow.UtilityThing"].ReplaceDeviceId({
+				deviceType: deviceType,
+				serialNumber: serialNumber,
+				modelNumber: modelNumber,
+				deviceId: deviceId
+			});
+			result.replaceDeviceIdStatus = replaceDeviceId;
+		} catch (err) {
+			isError = true;
+			result.status = false;
+			errorCode = "TWX-GSS0003-Thing Value Update Failed";
+			result.errorMessage = errorCode;
+			payload.errorCode = errorCode;
+			//Sending message to Fail Over API
+			result.failOverStatus = me.GSSFailOverAPICall({
+				metaData: metaData,
+				payload: payload
+			});
+			logger.error("TelemetryFeedIngestionService. Error :: TWX-GSS0003-Thing Value Update Failed for serial number :: " + serialNumber + " :: model number :: " + modelNumber + " deviceId :: " + deviceId + " deviceType :: " + deviceType);
+			result.status = false;
+		}
+
+	} else {
+		deviceInfo.serialNumber = tfDeviceDetails.serialNumber;
+								deviceInfo.deviceId = result.message.deviceId;
+								deviceInfo.type = modelInfo.name;
+								deviceInfo.model = modelInfo.TWXModelName;
+								deviceInfo.deviceName = tfDeviceDetails.deviceName;
+								deviceInfo.initializationTime = tfDeviceDetails.initializationTime;
+
+								try {
+									result.thingCreated = Things["TF.GSS.Flow.UtilityThing"].CreateThingFromSerialNumber({ //create thing with device info and device type
+										deviceType: result.message.deviceType,
+										deviceInfo: deviceInfo
+									});
+									try {
+										result.streamCreated = Things["TF.GSS.Flow.UtilityThing"].CreateEventStreamsForDevice({
+											deviceType: result.message.deviceType,
+											serialNumber: deviceInfo.serialNumber
+										});
+									} catch (err) {
+										isError = true;
+										result.errorCode = "TWX-GSS0002-Event Stream Creation Failed";
+										result.status = false;
+										message.errorCode = "TWX-GSS0002-Event Stream Creation Failed";
+										logger.info("Passed to fail over - payload " + JSON.stringify(metaData));
+										me.GSSFailOverAPICall({
+											metaData: result.metaData,
+											payload: message
+										});
+									}
+								} catch (err) {
+									isError = true;
+									result.errorCode = "TWX-GSS0002-Thing Creation Failed";
+									result.status = false;
+									message.errorCode = "TWX-GSS0002-Thing Creation Failed";
+									logger.info("Passed to fail over - payload " + JSON.stringify(metaData));
+									me.GSSFailOverAPICall({
+										metaData: result.metaData,
+										payload: message
+									});
+								}
+	}
+} catch (err) {
+	isError = true;
+	result.status = false;
+	errorCode = "TWX-GSS0006-Device Lookup Failed";
+	result.errorMessage = errorCode;
+	payload.errorCode = errorCode;
+	//Sending message to Fail Over API
+	result.failOverResponse = me.GSSFailOverAPICall({
+		metaData: metaData,
+		payload: payload
+	});
+	logger.error("TelemetryFeedIngestionService. Error :: TWX-GSS0006-Device Lookup Failed for serial number :: " + serialNumber + " :: model number :: " + modelNumber);
+}
